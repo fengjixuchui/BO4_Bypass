@@ -33,6 +33,9 @@
     <ClInclude Include="ModuleHidden.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="NtHelper.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
