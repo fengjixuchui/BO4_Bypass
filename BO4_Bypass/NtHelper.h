@@ -227,7 +227,7 @@ typedef NTSTATUS(NTAPI*p_NtGetContextThread)(HANDLE ThreadHandle, PCONTEXT pCont
 typedef NTSTATUS(NTAPI*p_NtOpenThread)(PHANDLE ThreadHandle, ACCESS_MASK DesiredAccess, POBJECT_ATTRIBUTES ObjectAttributes, PVOID Inject_GameId);
 typedef NTSTATUS(NTAPI*p_NtWow64ReadVirtualMemory64)(HANDLE, PVOID64, PVOID, ULONGLONG, PULONGLONG);
 typedef NTSTATUS(NTAPI*p_NtReadFile)(HANDLE FileHandle, HANDLE Event, PIO_APC_ROUTINE ApcRoutine, PVOID ApcContext, PIO_STATUS_BLOCK IoStatusBlock, PVOID Buffer, ULONG Length, PLARGE_INTEGER   ByteOffset, PULONG Key);
-
 typedef VOID(WINAPI*p_RtlInitUnicodeString)(PUNICODE_STRING Object, LPCWSTR String);
+typedef VOID(WINAPI*p_Sleep)(DWORD dwMilliseconds);
 
 

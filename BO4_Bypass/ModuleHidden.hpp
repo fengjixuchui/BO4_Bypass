@@ -1,8 +1,8 @@
 #pragma once
 #include "stdafx.h"
 
+#pragma region _PE_STRUCT_
 #ifdef _WIN64
-
 typedef struct _WPEB_LDR_DATA {
 	ULONG			Length;
 	UCHAR			Initialized;
@@ -26,7 +26,6 @@ typedef struct _WPEB {
 	_WPEB_LDR_DATA*     LoaderData;
 	ULONG64				ProcessParameters;
 }WPEB, *WPPEB;
-
 
 typedef struct _WLDR_DATA_TABLE_ENTRY
 {
@@ -106,13 +105,130 @@ typedef struct _WLDR_DATA_TABLE_ENTRY
 } WLDR_DATA_TABLE_ENTRY, *WPLDR_DATA_TABLE_ENTRY;
 #endif
 
+#pragma endregion
+
+
+
 namespace ModuleHidden
 {
+
+	static bool Zero(PVOID addr, ULONG_PTR size) {
+		DWORD old = 0;
+		if (VirtualProtect(addr, size, PAGE_EXECUTE_READWRITE, &old)) {
+			ZeroMemory(addr, size);
+			VirtualProtect(addr, size, old, &old);
+			return TRUE;
+		}
+		return FALSE;
+	}
+
+	static bool CleanPEJunk(ULONG_PTR hDll) {
+		PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)hDll;
+		if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) {
+			DbgLog::Log("ModuleHidden: Invalid IMAGE_DOS_SIGNATURE! \r\n");
+			return FALSE;
+		}
+
+		PIMAGE_NT_HEADERS pINH = (PIMAGE_NT_HEADERS)((PCHAR)hDll + dosHeader->e_lfanew);
+		if (pINH->Signature != IMAGE_NT_SIGNATURE) {
+			DbgLog::Log("ModuleHidden: Invalid IMAGE_NT_SIGNATURE! \r\n");
+			return FALSE;
+		}
+		PIMAGE_SECTION_HEADER pSectionHeader = (PIMAGE_SECTION_HEADER)(pINH + 1);
+
+#ifdef _WIN64
+		PIMAGE_DATA_DIRECTORY pdd = ((PIMAGE_NT_HEADERS64)pINH)->OptionalHeader.DataDirectory;
+#else
+		PIMAGE_DATA_DIRECTORY pdd = ((PIMAGE_NT_HEADERS32)headers)->OptionalHeader.DataDirectory;
+#endif
+
+		PIMAGE_IMPORT_DESCRIPTOR iat = (PIMAGE_IMPORT_DESCRIPTOR)(hDll + pdd[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+
+		for (; iat->Name; ++iat)
+		{
+			auto modName = (PCHAR)(hDll + iat->Name);
+#ifdef _WIN64
+			PIMAGE_THUNK_DATA64 entry = (PIMAGE_THUNK_DATA64)(hDll + iat->OriginalFirstThunk);
+#else
+			PIMAGE_THUNK_DATA32 entry = (PIMAGE_THUNK_DATA32)(hDll + iat->OriginalFirstThunk);
+#endif
+			for (ULONG_PTR index = 0; entry->u1.AddressOfData; index += sizeof(ULONG_PTR), ++entry)
+			{
+				auto pImport = (PIMAGE_IMPORT_BY_NAME)(hDll + entry->u1.AddressOfData);
+				auto importName = pImport->Name;
+				DbgLog::Log("ModuleHidden: Wiping import: %s \r\n", importName);
+				Zero(importName, strlen(importName));
+			}
+
+			DbgLog::Log("ModuleHidden: Wiping import module: %s \r\n", modName);
+			Zero(modName, strlen(modName));
+		}
+
+
+		for (int i = 0; i < pINH->FileHeader.NumberOfSections; i++)
+		{
+			auto section = pSectionHeader[i];
+			const char* pName = (const char*)section.Name;
+
+			auto pSectionStart = hDll + section.VirtualAddress;
+			auto pSectionEnd = pSectionStart + section.SizeOfRawData;
+
+			// ×Ö·û´®»á±»²ÁÈ¥
+			if (pName[0] == '.' && pName[1] == 'r' && pName[2] == 'd' && pName[3] == 'a' && pName[4] == 't'&& pName[5] == 'a')
+			{
+				ULONG_PTR shitBase = 0;
+
+				for (ULONG_PTR ptr = pSectionStart; ptr < pSectionEnd - 4; ptr++)
+				{
+					auto str = (char*)ptr;
+					if (str[0] == 'G' && str[1] == 'C' && str[2] == 'T' && str[3] == 'L') // whatever that "GCTL" shit is, we gotta clean it up
+						shitBase = ptr;
+				}
+				auto shitSize = 676; // magic number. Change if not enough
+				if (shitBase)
+				{
+					Zero((void*)shitBase, shitSize);
+					DbgLog::Log("ModuleHidden: Cleaned GCTL. \r\n");
+				}
+				else
+				{
+					DbgLog::Log("ModuleHidden: Couldn't find GCTL shit. \r\n");
+				}
+			}
+			else if (0
+				|| pName[0] == '.' && pName[1] == 'r' && pName[2] == 's' && pName[3] == 'r' && pName[4] == 'c'						// .rsrc
+				|| pName[0] == '.' && pName[1] == 'r' && pName[2] == 'e' && pName[3] == 'l' && pName[4] == 'o'&& pName[5] == 'c'	// .reloc	
+				/*|| pName[0] == '.' && pName[1] == 'p' && pName[2] == 'd' && pName[3] == 'a' && pName[4] == 't'&& pName[5] == 'a' */) // .pdata assuming we need exception support.
+			{
+				DbgLog::Log("ModuleHidden: Wiping section %s. \r\n", pName);
+				Zero((void*)pSectionStart, section.SizeOfRawData);
+			}
+			else if (pName[0] == '.' && pName[1] == 'd' && pName[2] == 'a' && pName[3] == 't' && pName[4] == 'a') // .data this particular meme can be unstable
+			{
+				// DbgLog::Log("ModuleHidden: Wiping C++ exception data. \r\n");
+				// Zero((void*)(pSectionEnd - 0x1B7), 0x1B7);
+				// DbgLog::Log("ModuleHidden: Wiped. \r\n");
+			}
+		}
+
+		Zero((void*)hDll, pINH->OptionalHeader.SizeOfHeaders);
+
+		return TRUE;
+	}
+
+	static bool CleanPESection(HMODULE hDll) {
+		_MEMORY_BASIC_INFORMATION mbi;
+		DWORD Old = 0;
+		ZeroMemory(&mbi, sizeof(mbi));
+		if (VirtualQuery(hDll, &mbi, sizeof(mbi))) {
+			return Zero(mbi.BaseAddress, mbi.RegionSize);
+		}
+		return FALSE;
+	}
+
 	static bool OnAttach(HMODULE hDll)
 	{
 		// MessageBoxA(NULL, "#1", "CrashTest", 0);
-		_MEMORY_BASIC_INFORMATION mbi;
-		DWORD Old = 0;
 #ifdef _WIN64
 		PLIST_ENTRY64 pListEntry = 0;
 		_WLDR_DATA_TABLE_ENTRY* pModule = 0;
@@ -122,8 +238,6 @@ namespace ModuleHidden
 		_WLDR_DATA_TABLE_ENTRY* pModule = 0;
 		_WPEB* pPEB = reinterpret_cast<_WPEB*>(__readfsdword(0x30));
 #endif
-		ZeroMemory(&mbi, sizeof(mbi));
-
 		if (!pPEB)
 			return false;
 		// MessageBoxA(NULL, "#2", "CrashTest", 0);
@@ -170,15 +284,15 @@ namespace ModuleHidden
 #endif
 		}
 		// MessageBoxA(NULL, "#3", "CrashTest", 0);
-		if (!bFound)
-			return true;
-		if (!VirtualQuery(hDll, &mbi, sizeof(mbi)))  // Crash when injected with ManualMap£¬ use `if (!bFound) return true;` to avoid.
-			return false;
-		if (!VirtualProtect(mbi.BaseAddress, mbi.RegionSize, PAGE_EXECUTE_READWRITE, &Old))
-			return false;
-		ZeroMemory(mbi.BaseAddress, mbi.RegionSize);
-		if (!VirtualProtect(mbi.BaseAddress, mbi.RegionSize, Old, &Old))
-			return false;
+
+		// Clean Junk
+		CleanPEJunk((ULONG_PTR)hDll);
+
+		// Clean PE selection
+		// Crash when injected with ManualMap£¬ use `if (bFound)` to avoid.
+		if (bFound)
+			CleanPESection(hDll);
+
 		return true;
 	}
 	static bool OnDetach()

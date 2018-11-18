@@ -37,9 +37,11 @@ protected:
 	static p_NtReadFile o_NtReadFile;
 	static p_NtCreateFile o_NtCreateFile;
 	static p_RtlInitUnicodeString o_RtlInitUnicodeString;
+	static p_Sleep o_Sleep;
 	static DWORD_PTR hModule;
 #pragma endregion Member		
 #pragma region Hooks
+
 	static NTSTATUS NTAPI NtSetInformationThread_Hook(HANDLE ThreadHandle, THREADINFOCLASS ThreadInformationClass, PVOID ThreadInformation, ULONG ThreadInformationLength);
 	static NTSTATUS NTAPI NtQueryVirtualMemory_Hook(HANDLE ProcessHandle, PVOID BaseAddress, int MemoryInformationClass, PVOID MemoryInformation, SIZE_T MemoryInformationLength, PSIZE_T ReturnLength);
 	static BOOL CALLBACK EnumWindows_Hook_EnumWindowsProc(HWND hWnd, LPARAM lParam);
@@ -56,5 +58,7 @@ protected:
 	static NTSTATUS NTAPI NtGetContextThread_Hook(HANDLE ThreadHandle, PCONTEXT pContext);
 	static NTSTATUS NTAPI NtOpenThread_Hook(PHANDLE ThreadHandle, ACCESS_MASK DesiredAccess, POBJECT_ATTRIBUTES ObjectAttributes, PVOID Inject_GameId);
 	static NTSTATUS NTAPI NtCreateFile_Hook(PHANDLE FileHandle, ACCESS_MASK DesiredAccess, POBJECT_ATTRIBUTES ObjectAttributes, PIO_STATUS_BLOCK IoStatusBlock, PLARGE_INTEGER AllocationSize, ULONG FileAttributes, ULONG ShareAccess, ULONG CreateDisposition, ULONG CreateOptions, PVOID EaBuffer, ULONG EaLength);
+	static VOID WINAPI Sleep_Hook(DWORD dwMilliseconds);
+
 #pragma endregion Hooks
 };
